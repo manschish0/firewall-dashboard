@@ -1,18 +1,28 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 
 const API = "http://localhost:5001/api";
 
 export default function App() {
   const [rows, setRows] = useState([]);
+  const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [me, setMe] = useState(""); // your name for reservations
   const [dur, setDur] = useState({}); // deviceId -> {d,h,m}
+  const [activeTab, setActiveTab] = useState("Development"); // Default to Development
+  const scrollPositionRef = useRef(0);
 
   const refresh = async () => {
+    // Save current scroll position before refresh
+    scrollPositionRef.current = window.scrollY || window.pageYOffset;
     setLoading(true);
-    const res = await fetch(`${API}/devices`);
-    const data = await res.json();
-    setRows(data);
+    const [devicesRes, inventoryRes] = await Promise.all([
+      fetch(`${API}/devices`),
+      fetch(`${API}/inventory`)
+    ]);
+    const devicesData = await devicesRes.json();
+    const inventoryData = await inventoryRes.json();
+    setRows(devicesData);
+    setInventory(inventoryData);
     setLoading(false);
   };
 
@@ -21,6 +31,16 @@ export default function App() {
     const t = setInterval(refresh, 5001); // auto-refresh
     return () => clearInterval(t);
   }, []);
+
+  // Restore scroll position after data loads
+  useEffect(() => {
+    if (!loading && scrollPositionRef.current > 0) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        window.scrollTo(0, scrollPositionRef.current);
+      });
+    }
+  }, [loading, rows]);
 
   const canReserve = (r) =>
     r.status === "Up" && r.availability === "Available" && me.trim().length > 0;
@@ -67,6 +87,167 @@ export default function App() {
     return <span className="badge badge-na">Not Available</span>;
   };
 
+  const DeviceTooltip = ({ device }) => {
+    // Always render tooltip, show message if no data
+    const hasData = device.owner || device.location;
+    if (!hasData) {
+      // Don't show tooltip if no data
+      return null;
+    }
+    return (
+      <div className="device-tooltip">
+        {device.owner && (
+          <div className="tooltip-row">
+            <span className="tooltip-label">Owner:</span>
+            <span className="tooltip-value">{device.owner}</span>
+          </div>
+        )}
+        {device.location && (
+          <div className="tooltip-row">
+            <span className="tooltip-label">Location:</span>
+            <span className="tooltip-value">{device.location}</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Group devices by team and then by section
+  const groupedDevices = useMemo(() => {
+    const groups = {
+      QA: { manual: [], regression: [] },
+      Development: { PRISM: [], HiSecOS: [] }
+    };
+    rows.forEach((r) => {
+      const team = (r.team || "Development").trim();
+      const section = (r.section || "").trim().toLowerCase();
+      
+      if (team.toLowerCase() === "qa") {
+        if (section === "manual") {
+          groups.QA.manual.push(r);
+        } else if (section === "regression") {
+          groups.QA.regression.push(r);
+        } else {
+          // Default to manual if section is not specified
+          groups.QA.manual.push(r);
+        }
+      } else {
+        // Development team
+        // Get original section value and normalized version
+        const originalSection = (r.section || "").trim();
+        const normalizedSection = originalSection.replace(/\s+/g, "").toLowerCase();
+        
+        // Check for HiSecOS (handle various case/spacing variations like "HiSecOS", "hisecos", "HiSec OS", etc.)
+        // Check both normalized and original to catch "HiSecOS" exactly
+        if (normalizedSection === "hisecos" || 
+            normalizedSection.includes("hisec") ||
+            originalSection === "HiSecOS" ||
+            originalSection.toLowerCase() === "hisecos") {
+          groups.Development.HiSecOS.push(r);
+        } else if (normalizedSection === "prism" || originalSection === "PRISM") {
+          groups.Development.PRISM.push(r);
+        } else {
+          // Default to PRISM if section is not specified or doesn't match
+          groups.Development.PRISM.push(r);
+        }
+      }
+    });
+    return groups;
+  }, [rows]);
+
+
+  const renderTable = (deviceRows) => (
+    <table>
+      <thead>
+        <tr>
+          <th>Device</th>
+          <th>IP Address</th>
+          <th>Telnet Details</th>
+          <th>Reserved By</th>
+          <th>Availability</th>
+          <th>Next Available Time</th>
+          <th>Reserve For (D / H / M)</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {deviceRows.map((r) => (
+          <tr key={r.id}>
+            <td className="device-name-cell">
+              <span className="device-name">{r.name}</span>
+              <DeviceTooltip device={r} />
+            </td>
+            {/* <td className={r.status === "Up" ? "status-up" : "status-down"}>
+              {r.status}
+            </td> */}
+            <td>{r.deviceIp}</td>
+            <td><code>{r.telnet}</code></td>
+            <td>{r.reservedBy}</td>
+            {/* <td>{r.loginActivity}</td> */}
+            <td><AvailabilityBadge r={r} /></td>
+            <td>{r.nextAvailableTime}</td>
+            <td>
+              {r.availability === "Available" ? (
+                <div className="row-actions">
+                  <input
+                    className="input-sm"
+                    type="number"
+                    min="0"
+                    placeholder="D"
+                    value={(dur[r.id]?.d) ?? ""}
+                    onChange={(e) =>
+                      setDur({ ...dur, [r.id]: { ...dur[r.id], d: e.target.value } })
+                    }
+                  />
+                  <input
+                    className="input-sm"
+                    type="number"
+                    min="0"
+                    placeholder="H"
+                    value={(dur[r.id]?.h) ?? ""}
+                    onChange={(e) =>
+                      setDur({ ...dur, [r.id]: { ...dur[r.id], h: e.target.value } })
+                    }
+                  />
+                  <input
+                    className="input-sm"
+                    type="number"
+                    min="0"
+                    placeholder="M"
+                    value={(dur[r.id]?.m) ?? ""}
+                    onChange={(e) =>
+                      setDur({ ...dur, [r.id]: { ...dur[r.id], m: e.target.value } })
+                    }
+                  />
+                </div>
+              ) : (
+                <span style={{ color: '#7c8ba1' }}>—</span>
+              )}
+            </td>
+            <td>
+              <div className="action-buttons">
+                <button
+                  className="btn"
+                  disabled={!canReserve(r)}
+                  onClick={() => handleReserve(r.id)}
+                >
+                  Reserve
+                </button>
+                <button
+                  className="btn"
+                  disabled={r.reservedBy !== me && r.reservedBy !== "—"}
+                  onClick={() => handleRelease(r.id)}
+                >
+                  Release
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
   return (
     <div className="container">
       <div className="card">
@@ -81,95 +262,115 @@ export default function App() {
           <span className="small">Auto-refreshing every 5s</span>
         </div>
 
+        {/* Team Tabs */}
+        <div className="tabs-container">
+          <button
+            className={`tab ${activeTab === "Development" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("Development")}
+          >
+            Development
+          </button>
+          <button
+            className={`tab ${activeTab === "QA" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("QA")}
+          >
+            QA
+          </button>
+          <button
+            className={`tab ${activeTab === "Inventory" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("Inventory")}
+          >
+            Inventory
+          </button>
+        </div>
+
         {loading ? (
           <div>Loading…</div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Device</th>
-                <th>IP Address</th>
-                <th>Telnet Details</th>
-                <th>Reserved By</th>
-                <th>Availability</th>
-                <th>Next Available Time</th>
-                <th>Reserve For (D / H / M)</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.name}</td>
-                  {/* <td className={r.status === "Up" ? "status-up" : "status-down"}>
-                    {r.status}
-                  </td> */}
-                  <td>{r.deviceIp}</td>
-                  <td><code>{r.telnet}</code></td>
-                  <td>{r.reservedBy}</td>
-                  {/* <td>{r.loginActivity}</td> */}
-                  <td><AvailabilityBadge r={r} /></td>
-                  <td>{r.nextAvailableTime}</td>
-                  <td>
-                    {r.availability === "Available" ? (
-                      <div className="row-actions">
-                        <input
-                          className="input-sm"
-                          type="number"
-                          min="0"
-                          placeholder="D"
-                          value={(dur[r.id]?.d) ?? ""}
-                          onChange={(e) =>
-                            setDur({ ...dur, [r.id]: { ...dur[r.id], d: e.target.value } })
-                          }
-                        />
-                        <input
-                          className="input-sm"
-                          type="number"
-                          min="0"
-                          placeholder="H"
-                          value={(dur[r.id]?.h) ?? ""}
-                          onChange={(e) =>
-                            setDur({ ...dur, [r.id]: { ...dur[r.id], h: e.target.value } })
-                          }
-                        />
-                        <input
-                          className="input-sm"
-                          type="number"
-                          min="0"
-                          placeholder="M"
-                          value={(dur[r.id]?.m) ?? ""}
-                          onChange={(e) =>
-                            setDur({ ...dur, [r.id]: { ...dur[r.id], m: e.target.value } })
-                          }
-                        />
-                      </div>
+          <>
+            {/* Development Team Section */}
+            {activeTab === "Development" && (groupedDevices.Development.PRISM.length > 0 || groupedDevices.Development.HiSecOS.length > 0) && (
+              <div className="team-section">
+                <h2 className="team-header">Development Team</h2>
+                
+                {/* PRISM Subsection */}
+                {groupedDevices.Development.PRISM.length > 0 && (
+                  <div className="subsection">
+                    <h3 className="subsection-header">PRISM</h3>
+                    {renderTable(groupedDevices.Development.PRISM)}
+                  </div>
+                )}
+
+                {/* HiSecOS Subsection */}
+                {groupedDevices.Development.HiSecOS.length > 0 && (
+                  <div className="subsection">
+                    <h3 className="subsection-header">HiSecOS</h3>
+                    {renderTable(groupedDevices.Development.HiSecOS)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* QA Team Section */}
+            {activeTab === "QA" && (groupedDevices.QA.manual.length > 0 || groupedDevices.QA.regression.length > 0) && (
+              <div className="team-section">
+                <h2 className="team-header">QA Team</h2>
+                
+                {/* Manual Subsection */}
+                {groupedDevices.QA.manual.length > 0 && (
+                  <div className="subsection">
+                    <h3 className="subsection-header">Manual</h3>
+                    {renderTable(groupedDevices.QA.manual)}
+                  </div>
+                )}
+
+                {/* Regression Subsection */}
+                {groupedDevices.QA.regression.length > 0 && (
+                  <div className="subsection">
+                    <h3 className="subsection-header">Regression</h3>
+                    {renderTable(groupedDevices.QA.regression)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Inventory Tab */}
+            {activeTab === "Inventory" && (
+              <div className="team-section">
+                <h2 className="team-header">Device Inventory</h2>
+                <table className="inventory-table">
+                  <thead>
+                    <tr>
+                      <th>Device Name</th>
+                      <th>Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inventory.length > 0 ? (
+                      inventory.map((item) => (
+                        <tr key={item.device_name}>
+                          <td>{item.device_name}</td>
+                          <td className="count-cell">{item.count}</td>
+                        </tr>
+                      ))
                     ) : (
-                      "—"
+                      <tr>
+                        <td colSpan="2" className="no-devices-message">No devices in inventory</td>
+                      </tr>
                     )}
-                  </td>
-                  <td>
-                    <div className="action-buttons">
-                      <button
-                        className="btn"
-                        disabled={!canReserve(r)}
-                        onClick={() => handleReserve(r.id)}
-                      >
-                        Reserve
-                      </button>
-                      <button
-                        className="btn"
-                        disabled={r.reservedBy !== me && r.reservedBy !== "—"}
-                        onClick={() => handleRelease(r.id)}
-                      >
-                        Release
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Show message if no devices in selected tab */}
+            {activeTab === "Development" && groupedDevices.Development.PRISM.length === 0 && groupedDevices.Development.HiSecOS.length === 0 && (
+              <div className="no-devices-message">No Development devices available</div>
+            )}
+            {activeTab === "QA" && groupedDevices.QA.manual.length === 0 && groupedDevices.QA.regression.length === 0 && (
+              <div className="no-devices-message">No QA devices available</div>
+            )}
+          </>
         )}
       </div>
     </div>

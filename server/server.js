@@ -41,30 +41,45 @@ async function computeRow(d) {
   const isUp = d.enable_ping === 0 ? true : !!(status?.is_up);
   const loginActivity = !!(status?.login_activity); // optional source
 
-  let reservedBy = activeRes ? activeRes.user_name : null;
   let availability, nextAvailableTime;
+  let reservedBy = "—";
 
   if (!isUp) {
     availability = "Not Available";
     nextAvailableTime = "—";
-  } else if (reservedBy) {
+    reservedBy = "—";
+  } else if (activeRes) {
+    // Active reservation - device is in use
     availability = "In Use";
     nextAvailableTime = msToHMS(activeRes.end_time - nowMs());
+    reservedBy = activeRes.user_name || "—";
   } else {
+    // No active reservation - device is available
+    // Explicitly set reservedBy to "—" when no active reservation
     availability = "Available";
     nextAvailableTime = "Now";
+    reservedBy = "—";
   }
+
+  // Format telnet string - show "—" if console_ip is empty
+  const telnetStr = d.console_ip && d.console_ip.trim() 
+    ? `telnet ${d.console_ip} ${d.console_port}` 
+    : "—";
 
   return {
     id: d.id,
     name: d.name,
-    deviceIp: d.device_ip,
-    telnet: `telnet ${d.console_ip} ${d.console_port}`,
+    deviceIp: d.device_ip || "—",
+    telnet: telnetStr,
     status: isUp ? "Up" : "Down",
-    reservedBy: reservedBy || "—",
+    reservedBy: reservedBy,
     loginActivity: isUp ? (loginActivity ? "Yes" : "No") : "—",
     availability,
-    nextAvailableTime
+    nextAvailableTime,
+    team: d.team || "Development",
+    section: d.section || "",
+    owner: d.owner || "",
+    location: d.location || ""
   };    
 }
 
@@ -75,6 +90,16 @@ app.get("/api/devices", async (_req, res) => {
   const devices = await db.all(`SELECT * FROM devices ORDER BY id ASC`);
   const rows = await Promise.all(devices.map(computeRow));
   res.json(rows);
+});
+
+// Get inventory data
+app.get("/api/inventory", async (_req, res) => {
+  try {
+    const inventory = await db.all(`SELECT device_name, count FROM inventory ORDER BY device_name ASC`);
+    res.json(inventory);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Create reservation for duration (days/hours/minutes)
