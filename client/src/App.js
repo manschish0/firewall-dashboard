@@ -12,10 +12,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("Development"); // Default to Development
   const scrollPositionRef = useRef(0);
 
-  const refresh = async () => {
+  const refresh = async (showLoading = false) => {
     // Save current scroll position before refresh
     scrollPositionRef.current = window.scrollY || window.pageYOffset;
-    setLoading(true);
+    if (showLoading) {
+      setLoading(true);
+    }
     const [devicesRes, inventoryRes] = await Promise.all([
       fetch(`${API}/devices`),
       fetch(`${API}/inventory`)
@@ -24,12 +26,16 @@ export default function App() {
     const inventoryData = await inventoryRes.json();
     setRows(devicesData);
     setInventory(inventoryData);
-    setLoading(false);
+    if (showLoading) {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 5001); // auto-refresh
+    // Initial load with loading state
+    refresh(true);
+    // Auto-refresh without loading state to prevent flicker
+    const t = setInterval(() => refresh(false), 5001);
     return () => clearInterval(t);
   }, []);
 
@@ -64,7 +70,7 @@ export default function App() {
       const e = await res.json();
       alert(e.error || "Failed to reserve");
     }
-    await refresh();
+    await refresh(false);
   };
 
   const handleRelease = async (id) => {
@@ -77,7 +83,7 @@ export default function App() {
       const e = await res.json();
       alert(e.error || "Nothing to release");
     }
-    await refresh();
+    await refresh(false);
   };
 
   const AvailabilityBadge = ({ r }) => {
