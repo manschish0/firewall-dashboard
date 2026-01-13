@@ -5,7 +5,11 @@ import ping from "ping";
 import { initDb } from "./db.js";
 
 const app = express();
-app.use(cors());
+// CORS configuration - allow requests from frontend
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true
+}));
 app.use(express.json());
 
 const db = await initDb();
@@ -216,5 +220,5 @@ runPingCheck();
 // Schedule ping check every minute
 cron.schedule("* * * * *", runPingCheck);
 
-const PORT = 5001;
-app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, () => console.log(`API running on port ${PORT}`));

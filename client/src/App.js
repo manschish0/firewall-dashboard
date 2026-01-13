@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 
-const API = "http://localhost:5001/api";
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5001";
+const API = `${API_BASE}/api`;
 
 export default function App() {
   const [rows, setRows] = useState([]);
