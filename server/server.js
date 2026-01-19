@@ -67,15 +67,21 @@ async function computeRow(d) {
   }
 
   // Format telnet string - show "—" if console_ip is empty
+  // Remove "telnet" prefix if it exists (for backward compatibility)
   const telnetStr = d.console_ip && d.console_ip.trim() 
-    ? `telnet ${d.console_ip} ${d.console_port}` 
+    ? `${d.console_ip} ${d.console_port}` 
     : "—";
+  
+  // Ensure telnet string doesn't have "telnet" prefix (strip it if present)
+  const cleanTelnetStr = telnetStr !== "—" && telnetStr.startsWith("telnet ")
+    ? telnetStr.replace(/^telnet\s+/, "")
+    : telnetStr;
 
   return {
     id: d.id,
     name: d.name,
     deviceIp: d.device_ip || "—",
-    telnet: telnetStr,
+    telnet: cleanTelnetStr,
     status: isUp ? "Up" : "Down",
     reservedBy: reservedBy,
     loginActivity: isUp ? (loginActivity ? "Yes" : "No") : "—",

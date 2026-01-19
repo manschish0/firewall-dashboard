@@ -12,19 +12,28 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; overflow: v
 
 th, td { padding: 10px 12px; border-bottom: 1px solid #1e293b; text-align: left; vertical-align: middle; }
 td:first-child { overflow: visible; }
-th:not(:first-child), td:not(:first-child) { overflow: hidden; text-overflow: ellipsis; }
+/* When first cell has input, prevent overflow to avoid collisions */
+td:first-child:has(.input-edit) { 
+  overflow: hidden !important; 
+}
+th:not(:first-child):not(:nth-child(2)), td:not(:first-child):not(:nth-child(2)) { overflow: hidden; text-overflow: ellipsis; }
+/* Prevent inputs from overflowing their cells */
+td:has(.input-edit) { 
+  overflow: hidden !important; 
+  position: relative;
+}
 td:last-child { text-align: right; }
 th:last-child { text-align: right; }
 th { color: #9fb4d9; font-weight: 600; font-size: 14px; white-space: nowrap; }
 /* Column widths - ensure Reserve For and Actions have enough space */
-th:nth-child(1), td:nth-child(1) { width: 8%; } /* Device */
-th:nth-child(2), td:nth-child(2) { width: 10%; } /* IP Address */
-th:nth-child(3), td:nth-child(3) { width: 16%; } /* Telnet Details */
+th:nth-child(1), td:nth-child(1) { width: 10%; min-width: 120px; } /* Device - increased width for edit mode */
+th:nth-child(2), td:nth-child(2) { width: 15%; min-width: 140px; overflow: visible; white-space: nowrap; } /* IP Address - increased width */
+th:nth-child(3), td:nth-child(3) { width: 13%; } /* Telnet Details - slightly reduced */
 th:nth-child(4), td:nth-child(4) { width: 10%; } /* Reserved By */
 th:nth-child(5), td:nth-child(5) { width: 10%; } /* Availability */
 th:nth-child(6), td:nth-child(6) { width: 12%; } /* Next Available Time */
-th:nth-child(7), td:nth-child(7) { width: 20%; text-align: center; } /* Reserve For */
-th:nth-child(8), td:nth-child(8) { width: 18%; } /* Actions */
+th:nth-child(7), td:nth-child(7) { width: 17%; text-align: center; } /* Reserve For - slightly reduced */
+th:nth-child(8), td:nth-child(8) { width: 17%; } /* Actions - slightly reduced */
 .status-up { color: #22c55e; font-weight: 600; }
 .status-down { color: #ef4444; font-weight: 600; }
 .badge { display:inline-block; padding:2px 8px; border-radius: 999px; font-size:12px; }
@@ -55,9 +64,15 @@ tr { height: 56px; }
   overflow: visible;
 }
 
+/* When in edit mode, prevent overflow to avoid collisions */
+.device-name-cell:has(.input-edit) {
+  overflow: hidden;
+}
+
 .device-name-cell .input-edit {
   width: 100%;
-  min-width: 120px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .device-name {
@@ -330,6 +345,7 @@ tr { height: 56px; }
 
 .input-edit {
   width: 100%;
+  max-width: 100%;
   padding: 6px 8px;
   background: #0b1220;
   border: 1px solid #334155;
@@ -337,6 +353,19 @@ tr { height: 56px; }
   border-radius: 6px;
   font-size: 13px;
   box-sizing: border-box;
+  overflow: hidden;
+  display: block;
+}
+
+/* Hide number input spinner arrows */
+.input-edit[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.input-edit[type="number"]::-webkit-outer-spin-button,
+.input-edit[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .input-edit:focus {
@@ -347,6 +376,10 @@ tr { height: 56px; }
 
 .telnet-edit {
   display: flex;
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
   gap: 4px;
   align-items: center;
 }

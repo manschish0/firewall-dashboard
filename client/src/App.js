@@ -124,7 +124,8 @@ export default function App() {
     let consoleIp = "";
     let consolePort = 23;
     if (device.telnet && device.telnet !== "—" && device.telnet.trim() !== "") {
-      const match = device.telnet.match(/telnet\s+([^\s]+)\s+(\d+)/);
+      // Match format: "IP PORT" (without "telnet" prefix)
+      const match = device.telnet.match(/^([^\s]+)\s+(\d+)$/);
       if (match) {
         consoleIp = match[1];
         consolePort = parseInt(match[2], 10);
@@ -388,7 +389,7 @@ export default function App() {
                       setEditingDevice({ ...editingDevice, consoleIp: e.target.value })
                     }
                     placeholder="Console IP"
-                    style={{ width: "55%", marginRight: "4px" }}
+                    style={{ width: "55%", flexShrink: 0 }}
                   />
                   <input
                     className="input-edit"
@@ -400,7 +401,7 @@ export default function App() {
                       setEditingDevice({ ...editingDevice, consolePort: parseInt(e.target.value) || 23 })
                     }
                     placeholder="Port"
-                    style={{ width: "40%" }}
+                    style={{ width: "40%", flexShrink: 0 }}
                   />
                 </div>
               ) : (
