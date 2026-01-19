@@ -41,8 +41,9 @@ async function computeRow(d) {
     d.id, nowMs(), nowMs()
   );
 
-  // If ping is disabled, treat device as always up
-  const isUp = d.enable_ping === 0 ? true : !!(status?.is_up);
+  // Ping is currently disabled - all devices are treated as "up" (available)
+  // When ping is re-enabled, this will check enable_ping flag and actual ping status
+  const isUp = !!(status?.is_up); // All devices set to is_up = 1 since ping is disabled
   const loginActivity = !!(status?.login_activity); // optional source
 
   let availability, nextAvailableTime;
@@ -179,13 +180,128 @@ app.post("/api/login-activity", async (req, res) => {
   res.json({ ok: true });
 });
 
+// Admin code verification
+// Default admin code is "admin123" - can be changed via environment variable
+const ADMIN_CODE = process.env.ADMIN_CODE || "admin123";
+app.post("/api/admin/verify", async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (code === ADMIN_CODE) {
+      res.json({ ok: true, message: "Admin access granted" });
+    } else {
+      res.status(401).json({ error: "Invalid admin code" });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Create new device (admin only)
+app.post("/api/devices", async (req, res) => {
+  try {
+    const { name, device_ip, console_ip, console_port, team, section, enable_ping, description, owner, location } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: "Device name is required" });
+    }
+
+    const { lastID } = await db.run(
+      `INSERT INTO devices (name, device_ip, console_ip, console_port, enable_ping, description, team, section, owner, location)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      name || "",
+      device_ip || "",
+      console_ip || "",
+      console_port || 23,
+      enable_ping !== undefined ? enable_ping : 1,
+      description || "",
+      team || "Development",
+      section || "",
+      owner || "",
+      location || ""
+    );
+
+    // Initialize device status
+    await db.run(
+      `INSERT INTO device_status (device_id, is_up, last_checked, login_activity) VALUES (?, 0, 0, 0)`,
+      lastID
+    );
+
+    res.json({ ok: true, id: lastID });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Update device (admin only)
+app.put("/api/devices/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, device_ip, console_ip, console_port, team, section, enable_ping, description, owner, location } = req.body;
+
+    const device = await db.get(`SELECT * FROM devices WHERE id = ?`, id);
+    if (!device) {
+      return res.status(404).json({ error: "Device not found" });
+    }
+
+    // Only update fields that are provided in the request
+    // Allow empty strings to be set (for clearing values)
+    await db.run(
+      `UPDATE devices 
+       SET name = ?, device_ip = ?, console_ip = ?, console_port = ?, enable_ping = ?, 
+           description = ?, team = ?, section = ?, owner = ?, location = ?
+       WHERE id = ?`,
+      name !== undefined ? name : device.name,
+      device_ip !== undefined ? (device_ip === null ? "" : device_ip) : device.device_ip,
+      console_ip !== undefined ? (console_ip === null ? "" : console_ip) : device.console_ip,
+      console_port !== undefined ? (console_port || 23) : device.console_port,
+      enable_ping !== undefined ? enable_ping : device.enable_ping,
+      description !== undefined ? description : device.description,
+      team !== undefined ? team : device.team,
+      section !== undefined ? section : device.section,
+      owner !== undefined ? owner : device.owner,
+      location !== undefined ? location : device.location,
+      id
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete device (admin only)
+app.delete("/api/devices/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = await db.get(`SELECT * FROM devices WHERE id = ?`, id);
+    if (!device) {
+      return res.status(404).json({ error: "Device not found" });
+    }
+
+    // Delete device (cascade will handle device_status and reservations)
+    await db.run(`DELETE FROM devices WHERE id = ?`, id);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* ---------- Ping job: updates Up/Down ---------- */
-// Runs every minute. Replace with your internal management probe if you prefer.
+// DISABLED: Ping feature is currently disabled. Can be re-enabled in the future.
+// To re-enable: Uncomment the ping.promise.probe calls and the cron schedule below.
 async function runPingCheck() {
   const devices = await db.all(`SELECT * FROM devices`);
   for (const d of devices) {
+    // Ping is disabled - treat all devices as "up" (available)
+    // This allows devices to be reserved regardless of actual network connectivity
+    await db.run(
+      `UPDATE device_status SET is_up = 1, last_checked = ? WHERE device_id = ?`,
+      nowMs(), d.id
+    );
 
-    // 🔹 NEW: skip ping if disabled
+    // DISABLED: Actual ping check - uncomment to re-enable ping functionality
+    /*
     if (d.enable_ping === 0) {
       await db.run(
         `UPDATE device_status SET is_up = 1, last_checked = ? WHERE device_id = ?`,
@@ -209,16 +325,17 @@ async function runPingCheck() {
         d.id
       );
     }
+    */
   }
   
-  console.log("Ping cycle done", new Date().toISOString());
+  console.log("Device status updated (ping disabled)", new Date().toISOString());
 }
 
-// Run ping check immediately on startup
+// Run status check immediately on startup (sets all devices as available)
 runPingCheck();
 
-// Schedule ping check every minute
-cron.schedule("* * * * *", runPingCheck);
+// DISABLED: Cron schedule for ping checks - uncomment to re-enable automatic ping
+// cron.schedule("* * * * *", runPingCheck);
 
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log(`API running on port ${PORT}`));

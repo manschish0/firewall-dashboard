@@ -11,6 +11,22 @@ export default function App() {
   const [dur, setDur] = useState({}); // deviceId -> {d,h,m}
   const [activeTab, setActiveTab] = useState("Development"); // Default to Development
   const scrollPositionRef = useRef(0);
+  
+  // Admin state
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminCode, setAdminCode] = useState("");
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [editingDevice, setEditingDevice] = useState(null); // {id, deviceIp, consoleIp, consolePort}
+  const [showAddDeviceModal, setShowAddDeviceModal] = useState(false);
+  const [newDevice, setNewDevice] = useState({
+    name: "",
+    device_ip: "",
+    console_ip: "",
+    console_port: 23,
+    team: "Development",
+    section: "",
+    enable_ping: 1
+  });
 
   const refresh = async (showLoading = false) => {
     // Save current scroll position before refresh
@@ -84,6 +100,118 @@ export default function App() {
       alert(e.error || "Nothing to release");
     }
     await refresh(false);
+  };
+
+  // Admin functions
+  const handleAdminVerify = async () => {
+    const res = await fetch(`${API}/admin/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: adminCode })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setIsAdmin(true);
+      setShowAdminModal(false);
+      setAdminCode("");
+    } else {
+      alert(data.error || "Invalid admin code");
+    }
+  };
+
+  const handleEditDevice = (device) => {
+    // Parse console_ip and console_port from telnet string
+    let consoleIp = "";
+    let consolePort = 23;
+    if (device.telnet && device.telnet !== "—" && device.telnet.trim() !== "") {
+      const match = device.telnet.match(/telnet\s+([^\s]+)\s+(\d+)/);
+      if (match) {
+        consoleIp = match[1];
+        consolePort = parseInt(match[2], 10);
+      }
+    }
+    setEditingDevice({
+      id: device.id,
+      name: device.name || "",
+      deviceIp: device.deviceIp === "—" ? "" : (device.deviceIp || ""),
+      consoleIp: consoleIp,
+      consolePort: consolePort || 23
+    });
+  };
+
+  const handleSaveDevice = async () => {
+    if (!editingDevice) return;
+    
+    if (!editingDevice.name || !editingDevice.name.trim()) {
+      alert("Device name is required");
+      return;
+    }
+    
+    const res = await fetch(`${API}/devices/${editingDevice.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: editingDevice.name.trim(),
+        device_ip: editingDevice.deviceIp,
+        console_ip: editingDevice.consoleIp,
+        console_port: editingDevice.consolePort
+      })
+    });
+    
+    if (!res.ok) {
+      const e = await res.json();
+      alert(e.error || "Failed to update device");
+    } else {
+      setEditingDevice(null);
+      await refresh(false);
+    }
+  };
+
+  const handleDeleteDevice = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this device?")) {
+      return;
+    }
+    
+    const res = await fetch(`${API}/devices/${id}`, {
+      method: "DELETE"
+    });
+    
+    if (!res.ok) {
+      const e = await res.json();
+      alert(e.error || "Failed to delete device");
+    } else {
+      await refresh(false);
+    }
+  };
+
+  const handleAddDevice = async () => {
+    if (!newDevice.name.trim()) {
+      alert("Device name is required");
+      return;
+    }
+    
+    const res = await fetch(`${API}/devices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newDevice)
+    });
+    
+    if (!res.ok) {
+      const e = await res.json();
+      alert(e.error || "Failed to add device");
+    } else {
+      setShowAddDeviceModal(false);
+      setNewDevice({
+        name: "",
+        device_ip: "",
+        console_ip: "",
+        console_port: 23,
+        team: "Development",
+        section: "",
+        enable_ping: 1
+      });
+      await refresh(false);
+    }
   };
 
   const AvailabilityBadge = ({ r }) => {
@@ -162,6 +290,38 @@ export default function App() {
     return groups;
   }, [rows]);
 
+  // Calculate device status statistics per device type
+  const deviceStatsByType = useMemo(() => {
+    const statsByType = {};
+    
+    rows.forEach((r) => {
+      const deviceName = r.name || "Unknown";
+      
+      if (!statsByType[deviceName]) {
+        statsByType[deviceName] = {
+          name: deviceName,
+          total: 0,
+          available: 0,
+          inUse: 0,
+          notAvailable: 0
+        };
+      }
+      
+      statsByType[deviceName].total++;
+      
+      if (r.availability === "Available") {
+        statsByType[deviceName].available++;
+      } else if (r.availability === "In Use") {
+        statsByType[deviceName].inUse++;
+      } else if (r.availability === "Not Available") {
+        statsByType[deviceName].notAvailable++;
+      }
+    });
+    
+    // Convert to array and sort by device name
+    return Object.values(statsByType).sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
+
 
   const renderTable = (deviceRows) => (
     <table>
@@ -181,14 +341,72 @@ export default function App() {
         {deviceRows.map((r) => (
           <tr key={r.id}>
             <td className="device-name-cell">
-              <span className="device-name">{r.name}</span>
-              <DeviceTooltip device={r} />
+              {isAdmin && editingDevice?.id === r.id ? (
+                <input
+                  className="input-edit"
+                  type="text"
+                  value={editingDevice.name || ""}
+                  onChange={(e) =>
+                    setEditingDevice({ ...editingDevice, name: e.target.value })
+                  }
+                  placeholder="Device Name"
+                  autoFocus
+                />
+              ) : (
+                <>
+                  <span className="device-name">{r.name}</span>
+                  <DeviceTooltip device={r} />
+                </>
+              )}
             </td>
             {/* <td className={r.status === "Up" ? "status-up" : "status-down"}>
               {r.status}
             </td> */}
-            <td>{r.deviceIp}</td>
-            <td><code>{r.telnet}</code></td>
+            <td>
+              {isAdmin && editingDevice?.id === r.id ? (
+                <input
+                  className="input-edit"
+                  type="text"
+                  value={editingDevice.deviceIp || ""}
+                  onChange={(e) =>
+                    setEditingDevice({ ...editingDevice, deviceIp: e.target.value })
+                  }
+                  placeholder="IP Address"
+                />
+              ) : (
+                <span>{r.deviceIp}</span>
+              )}
+            </td>
+            <td>
+              {isAdmin && editingDevice?.id === r.id ? (
+                <div className="telnet-edit">
+                  <input
+                    className="input-edit"
+                    type="text"
+                    value={editingDevice.consoleIp || ""}
+                    onChange={(e) =>
+                      setEditingDevice({ ...editingDevice, consoleIp: e.target.value })
+                    }
+                    placeholder="Console IP"
+                    style={{ width: "55%", marginRight: "4px" }}
+                  />
+                  <input
+                    className="input-edit"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value={editingDevice.consolePort || 23}
+                    onChange={(e) =>
+                      setEditingDevice({ ...editingDevice, consolePort: parseInt(e.target.value) || 23 })
+                    }
+                    placeholder="Port"
+                    style={{ width: "40%" }}
+                  />
+                </div>
+              ) : (
+                <code>{r.telnet}</code>
+              )}
+            </td>
             <td>{r.reservedBy}</td>
             {/* <td>{r.loginActivity}</td> */}
             <td><AvailabilityBadge r={r} /></td>
@@ -233,20 +451,55 @@ export default function App() {
             </td>
             <td>
               <div className="action-buttons">
-                <button
-                  className="btn"
-                  disabled={!canReserve(r)}
-                  onClick={() => handleReserve(r.id)}
-                >
-                  Reserve
-                </button>
-                <button
-                  className="btn"
-                  disabled={r.reservedBy !== me && r.reservedBy !== "—"}
-                  onClick={() => handleRelease(r.id)}
-                >
-                  Release
-                </button>
+                {isAdmin && editingDevice?.id === r.id ? (
+                  <>
+                    <button
+                      className="btn btn-save"
+                      onClick={handleSaveDevice}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => setEditingDevice(null)}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="btn"
+                      disabled={!canReserve(r)}
+                      onClick={() => handleReserve(r.id)}
+                    >
+                      Reserve
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={r.reservedBy !== me && r.reservedBy !== "—"}
+                      onClick={() => handleRelease(r.id)}
+                    >
+                      Release
+                    </button>
+                    {isAdmin && (
+                      <button
+                        className="btn btn-edit"
+                        onClick={() => handleEditDevice(r)}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        className="btn btn-delete"
+                        onClick={() => handleDeleteDevice(r.id)}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             </td>
           </tr>
@@ -266,6 +519,33 @@ export default function App() {
             placeholder="Enter your name (for reservations)"
             onChange={(e) => setMe(e.target.value)}
           />
+          {!isAdmin ? (
+            <button
+              className="btn btn-admin"
+              onClick={() => setShowAdminModal(true)}
+            >
+              Enable Admin Settings
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <span className="badge badge-admin">Admin Mode</span>
+              <button
+                className="btn btn-admin"
+                onClick={() => {
+                  setIsAdmin(false);
+                  setEditingDevice(null);
+                }}
+              >
+                Disable Admin
+              </button>
+              <button
+                className="btn btn-add"
+                onClick={() => setShowAddDeviceModal(true)}
+              >
+                + Add Device
+              </button>
+            </div>
+          )}
           <span className="small">Auto-refreshing every 5s</span>
         </div>
 
@@ -345,6 +625,40 @@ export default function App() {
             {activeTab === "Inventory" && (
               <div className="team-section">
                 <h2 className="team-header">Device Inventory</h2>
+                
+                {/* Device Status Summary by Type */}
+                <div className="status-summary-table-container">
+                  <table className="status-summary-table">
+                    <thead>
+                      <tr>
+                        <th>Device Type</th>
+                        <th>Total</th>
+                        <th>Available</th>
+                        <th>In Use</th>
+                        <th>Not Available</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deviceStatsByType.length > 0 ? (
+                        deviceStatsByType.map((stat) => (
+                          <tr key={stat.name}>
+                            <td className="device-type-cell">{stat.name}</td>
+                            <td className="count-cell">{stat.total}</td>
+                            <td className="count-cell count-available">{stat.available}</td>
+                            <td className="count-cell count-inuse">{stat.inUse}</td>
+                            <td className="count-cell count-na">{stat.notAvailable}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="5" className="no-devices-message">No devices found</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <h3 className="subsection-header" style={{ marginTop: "32px", marginBottom: "12px" }}>Unmounted Inventory</h3>
                 <table className="inventory-table">
                   <thead>
                     <tr>
@@ -378,6 +692,126 @@ export default function App() {
               <div className="no-devices-message">No QA devices available</div>
             )}
           </>
+        )}
+
+        {/* Admin Code Modal */}
+        {showAdminModal && (
+          <div className="modal-overlay" onClick={() => setShowAdminModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <h2>Enable Admin Settings</h2>
+              <p>Enter admin code to enable admin features:</p>
+              <input
+                className="name-input"
+                type="password"
+                value={adminCode}
+                placeholder="Enter admin code"
+                onChange={(e) => setAdminCode(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleAdminVerify()}
+                autoFocus
+              />
+              <div className="modal-actions">
+                <button className="btn" onClick={handleAdminVerify}>
+                  Verify
+                </button>
+                <button className="btn" onClick={() => {
+                  setShowAdminModal(false);
+                  setAdminCode("");
+                }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Device Modal */}
+        {showAddDeviceModal && (
+          <div className="modal-overlay" onClick={() => setShowAddDeviceModal(false)}>
+            <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
+              <h2>Add New Device</h2>
+              <div className="form-group">
+                <label>Device Name *</label>
+                <input
+                  className="name-input"
+                  type="text"
+                  value={newDevice.name}
+                  placeholder="Device name"
+                  onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Device IP</label>
+                <input
+                  className="name-input"
+                  type="text"
+                  value={newDevice.device_ip}
+                  placeholder="Device IP address"
+                  onChange={(e) => setNewDevice({ ...newDevice, device_ip: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Console IP</label>
+                <input
+                  className="name-input"
+                  type="text"
+                  value={newDevice.console_ip}
+                  placeholder="Console IP address"
+                  onChange={(e) => setNewDevice({ ...newDevice, console_ip: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Console Port</label>
+                <input
+                  className="name-input"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={newDevice.console_port}
+                  placeholder="Console port (default: 23)"
+                  onChange={(e) => setNewDevice({ ...newDevice, console_port: parseInt(e.target.value) || 23 })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Team</label>
+                <select
+                  className="name-input"
+                  value={newDevice.team}
+                  onChange={(e) => setNewDevice({ ...newDevice, team: e.target.value })}
+                >
+                  <option value="Development">Development</option>
+                  <option value="QA">QA</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Section</label>
+                <input
+                  className="name-input"
+                  type="text"
+                  value={newDevice.section}
+                  placeholder="Section (e.g., PRISM, HiSecOS, manual, regression)"
+                  onChange={(e) => setNewDevice({ ...newDevice, section: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newDevice.enable_ping === 1}
+                    onChange={(e) => setNewDevice({ ...newDevice, enable_ping: e.target.checked ? 1 : 0 })}
+                  />
+                  Enable Ping
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-add" onClick={handleAddDevice}>
+                  Add Device
+                </button>
+                <button className="btn" onClick={() => setShowAddDeviceModal(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
