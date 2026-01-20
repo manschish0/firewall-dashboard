@@ -155,7 +155,7 @@ export default function App() {
         name: editingDevice.name.trim(),
         device_ip: editingDevice.deviceIp,
         console_ip: editingDevice.consoleIp,
-        console_port: editingDevice.consolePort
+        console_port: editingDevice.consolePort === "" ? 23 : (editingDevice.consolePort || 23)
       })
     });
     
@@ -194,7 +194,10 @@ export default function App() {
     const res = await fetch(`${API}/devices`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newDevice)
+      body: JSON.stringify({
+        ...newDevice,
+        console_port: newDevice.console_port === "" ? 23 : (newDevice.console_port || 23)
+      })
     });
     
     if (!res.ok) {
@@ -396,10 +399,18 @@ export default function App() {
                     type="number"
                     min="1"
                     max="65535"
-                    value={editingDevice.consolePort || 23}
-                    onChange={(e) =>
-                      setEditingDevice({ ...editingDevice, consolePort: parseInt(e.target.value) || 23 })
-                    }
+                    value={editingDevice.consolePort ?? 23}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "") {
+                        setEditingDevice({ ...editingDevice, consolePort: "" });
+                      } else {
+                        const num = parseInt(val, 10);
+                        if (!isNaN(num)) {
+                          setEditingDevice({ ...editingDevice, consolePort: num });
+                        }
+                      }
+                    }}
                     placeholder="Port"
                     style={{ width: "40%", flexShrink: 0 }}
                   />
@@ -769,7 +780,17 @@ export default function App() {
                   max="65535"
                   value={newDevice.console_port}
                   placeholder="Console port (default: 23)"
-                  onChange={(e) => setNewDevice({ ...newDevice, console_port: parseInt(e.target.value) || 23 })}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "") {
+                      setNewDevice({ ...newDevice, console_port: "" });
+                    } else {
+                      const num = parseInt(val, 10);
+                      if (!isNaN(num)) {
+                        setNewDevice({ ...newDevice, console_port: num });
+                      }
+                    }
+                  }}
                 />
               </div>
               <div className="form-group">
