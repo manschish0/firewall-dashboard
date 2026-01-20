@@ -227,9 +227,15 @@ app.post("/api/devices", async (req, res) => {
     );
 
     // Initialize device status
+    // Since ping is disabled, set is_up = 1 by default (device is available)
+    // If enable_ping is 0, device is always treated as available
+    // If enable_ping is 1, device will be checked by ping job (currently disabled, so also available)
+    const initialIsUp = 1; // Always set to 1 since ping is disabled
     await db.run(
-      `INSERT INTO device_status (device_id, is_up, last_checked, login_activity) VALUES (?, 0, 0, 0)`,
-      lastID
+      `INSERT INTO device_status (device_id, is_up, last_checked, login_activity) VALUES (?, ?, ?, 0)`,
+      lastID,
+      initialIsUp,
+      nowMs()
     );
 
     res.json({ ok: true, id: lastID });

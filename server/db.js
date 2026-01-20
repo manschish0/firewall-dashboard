@@ -329,8 +329,10 @@ export async function initDb() {
           d.location || ""
         );
         const deviceId = result.rows[0].id;
+        // Since ping is disabled, set is_up = 1 by default (device is available)
+        // last_checked will be updated by the ping check job
         await db.query(
-          `INSERT INTO device_status (device_id, is_up, last_checked, login_activity) VALUES ($1, 0, 0, 0)`,
+          `INSERT INTO device_status (device_id, is_up, last_checked, login_activity) VALUES ($1, 1, 0, 0)`,
           deviceId
         );
       }
