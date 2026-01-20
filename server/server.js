@@ -211,6 +211,35 @@ app.post("/api/devices", async (req, res) => {
       return res.status(400).json({ error: "Device name is required" });
     }
 
+    // Validate for duplicate device IP (if provided)
+    if (device_ip && device_ip.trim() !== "") {
+      const existingDeviceByIp = await db.get(
+        `SELECT id, name FROM devices WHERE device_ip = ? AND device_ip != ''`,
+        device_ip.trim()
+      );
+      if (existingDeviceByIp) {
+        return res.status(400).json({ 
+          error: `A device with IP address "${device_ip}" already exists (Device: ${existingDeviceByIp.name})` 
+        });
+      }
+    }
+
+    // Validate for duplicate telnet details (console_ip + console_port combination)
+    // Only check if both console_ip and console_port are provided
+    const finalConsolePort = console_port || 23;
+    if (console_ip && console_ip.trim() !== "") {
+      const existingDeviceByTelnet = await db.get(
+        `SELECT id, name FROM devices WHERE console_ip = ? AND console_port = ? AND console_ip != ''`,
+        console_ip.trim(),
+        finalConsolePort
+      );
+      if (existingDeviceByTelnet) {
+        return res.status(400).json({ 
+          error: `A device with telnet connection "${console_ip}:${finalConsolePort}" already exists (Device: ${existingDeviceByTelnet.name})` 
+        });
+      }
+    }
+
     const { lastID } = await db.run(
       `INSERT INTO devices (name, device_ip, console_ip, console_port, enable_ping, description, team, section, owner, location)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -255,6 +284,41 @@ app.put("/api/devices/:id", async (req, res) => {
       return res.status(404).json({ error: "Device not found" });
     }
 
+    // Determine the values that will be used (provided values or existing values)
+    const finalDeviceIp = device_ip !== undefined ? (device_ip === null ? "" : device_ip) : device.device_ip;
+    const finalConsoleIp = console_ip !== undefined ? (console_ip === null ? "" : console_ip) : device.console_ip;
+    const finalConsolePort = console_port !== undefined ? (console_port || 23) : device.console_port;
+
+    // Validate for duplicate device IP (if provided and not empty)
+    if (finalDeviceIp && finalDeviceIp.trim() !== "") {
+      const existingDeviceByIp = await db.get(
+        `SELECT id, name FROM devices WHERE device_ip = ? AND device_ip != '' AND id != ?`,
+        finalDeviceIp.trim(),
+        id
+      );
+      if (existingDeviceByIp) {
+        return res.status(400).json({ 
+          error: `A device with IP address "${finalDeviceIp}" already exists (Device: ${existingDeviceByIp.name})` 
+        });
+      }
+    }
+
+    // Validate for duplicate telnet details (console_ip + console_port combination)
+    // Only check if both console_ip and console_port are provided
+    if (finalConsoleIp && finalConsoleIp.trim() !== "") {
+      const existingDeviceByTelnet = await db.get(
+        `SELECT id, name FROM devices WHERE console_ip = ? AND console_port = ? AND console_ip != '' AND id != ?`,
+        finalConsoleIp.trim(),
+        finalConsolePort,
+        id
+      );
+      if (existingDeviceByTelnet) {
+        return res.status(400).json({ 
+          error: `A device with telnet connection "${finalConsoleIp}:${finalConsolePort}" already exists (Device: ${existingDeviceByTelnet.name})` 
+        });
+      }
+    }
+
     // Only update fields that are provided in the request
     // Allow empty strings to be set (for clearing values)
     await db.run(
@@ -263,9 +327,9 @@ app.put("/api/devices/:id", async (req, res) => {
            description = ?, team = ?, section = ?, owner = ?, location = ?
        WHERE id = ?`,
       name !== undefined ? name : device.name,
-      device_ip !== undefined ? (device_ip === null ? "" : device_ip) : device.device_ip,
-      console_ip !== undefined ? (console_ip === null ? "" : console_ip) : device.console_ip,
-      console_port !== undefined ? (console_port || 23) : device.console_port,
+      finalDeviceIp,
+      finalConsoleIp,
+      finalConsolePort,
       enable_ping !== undefined ? enable_ping : device.enable_ping,
       description !== undefined ? description : device.description,
       team !== undefined ? team : device.team,
