@@ -13,21 +13,38 @@ const dbWrapper = {
     let pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
     
     // For INSERT queries, add RETURNING id if not already present
-    if (sql.toUpperCase().trim().startsWith('INSERT') && !pgSql.toUpperCase().includes('RETURNING')) {
-      // Add RETURNING id before semicolon or at the end
-      if (pgSql.trim().endsWith(';')) {
-        pgSql = pgSql.trim().slice(0, -1) + ' RETURNING id;';
-      } else {
-        pgSql = pgSql.trim() + ' RETURNING id';
-      }
+    // Only add RETURNING id for tables that have an 'id' column (devices, reservations, inventory)
+    // Skip for device_status which uses device_id as primary key
+    const isInsert = sql.toUpperCase().trim().startsWith('INSERT');
+    const needsReturning = isInsert && 
+                          !pgSql.toUpperCase().includes('RETURNING') &&
+                          !pgSql.toUpperCase().includes('device_status');
+    
+    if (needsReturning) {
+      // Remove trailing semicolon if present, add RETURNING id, then add semicolon back
+      const trimmed = pgSql.trim();
+      const hasSemicolon = trimmed.endsWith(';');
+      const withoutSemicolon = hasSemicolon ? trimmed.slice(0, -1).trim() : trimmed;
+      pgSql = withoutSemicolon + ' RETURNING id' + (hasSemicolon ? ';' : '');
     }
     
-    const result = await db.query(pgSql, params);
-    // PostgreSQL returns inserted row with RETURNING clause
-    if (sql.toUpperCase().trim().startsWith('INSERT') && result.rows[0]?.id) {
-      return { lastID: result.rows[0].id };
+    try {
+      const result = await db.query(pgSql, params);
+      // PostgreSQL returns inserted row with RETURNING clause
+      if (isInsert && result.rows && result.rows.length > 0 && result.rows[0].id !== undefined) {
+        return { lastID: result.rows[0].id };
+      }
+      // For device_status INSERT, return success but no lastID (it uses device_id, not id)
+      if (isInsert && pgSql.toUpperCase().includes('device_status')) {
+        return { lastID: null };
+      }
+      return { lastID: null };
+    } catch (error) {
+      console.error('Database query error:', error.message);
+      console.error('SQL:', pgSql);
+      console.error('Params:', params);
+      throw error;
     }
-    return { lastID: null };
   },
 
   // Get a single row
