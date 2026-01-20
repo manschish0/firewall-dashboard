@@ -13,12 +13,23 @@ const dbWrapper = {
     let pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
     
     // For INSERT queries, add RETURNING id if not already present
-    // Only add RETURNING id for tables that have an 'id' column (devices, reservations, inventory)
-    // Skip for device_status which uses device_id as primary key
+    // Only add RETURNING id for tables that have an 'id' column
     const isInsert = sql.toUpperCase().trim().startsWith('INSERT');
-    const needsReturning = isInsert && 
-                          !pgSql.toUpperCase().includes('RETURNING') &&
-                          !pgSql.toUpperCase().includes('device_status');
+    let needsReturning = false;
+
+    if (isInsert && !pgSql.toUpperCase().includes('RETURNING')) {
+      // Extract table name from INSERT statement
+      // Pattern: INSERT INTO table_name ... or INSERT INTO schema.table_name ...
+      const insertMatch = pgSql.match(/INSERT\s+INTO\s+(?:[\w.]+\.)?(\w+)/i);
+      if (insertMatch) {
+        const tableName = insertMatch[1].toLowerCase();
+        // Only add RETURNING id for tables that have an 'id' column
+        // devices, reservations, inventory have 'id' column
+        // device_status uses 'device_id' as primary key, so skip it
+        const tablesWithId = ['devices', 'reservations', 'inventory'];
+        needsReturning = tablesWithId.includes(tableName);
+      }
+    }
     
     if (needsReturning) {
       // Remove trailing semicolon if present, add RETURNING id, then add semicolon back
@@ -33,10 +44,6 @@ const dbWrapper = {
       // PostgreSQL returns inserted row with RETURNING clause
       if (isInsert && result.rows && result.rows.length > 0 && result.rows[0].id !== undefined) {
         return { lastID: result.rows[0].id };
-      }
-      // For device_status INSERT, return success but no lastID (it uses device_id, not id)
-      if (isInsert && pgSql.toUpperCase().includes('device_status')) {
-        return { lastID: null };
       }
       return { lastID: null };
     } catch (error) {
