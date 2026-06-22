@@ -27,7 +27,7 @@ th:last-child { text-align: right; }
 th { color: #9fb4d9; font-weight: 600; font-size: 14px; white-space: nowrap; }
 /* Column widths - ensure Reserve For and Actions have enough space */
 th:nth-child(1), td:nth-child(1) { width: 10%; min-width: 120px; } /* Device - increased width for edit mode */
-th:nth-child(2), td:nth-child(2) { width: 15%; min-width: 140px; overflow: visible; white-space: nowrap; } /* IP Address - increased width */
+th:nth-child(2), td:nth-child(2) { width: 15%; min-width: 140px; overflow: hidden; word-wrap: break-word; word-break: break-word; white-space: normal; } /* IP Address - allow wrapping */
 th:nth-child(3), td:nth-child(3) { width: 13%; } /* Telnet Details - slightly reduced */
 th:nth-child(4), td:nth-child(4) { width: 10%; } /* Reserved By */
 th:nth-child(5), td:nth-child(5) { width: 10%; } /* Availability */
